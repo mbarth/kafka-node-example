@@ -18,6 +18,9 @@ var path = require('path'),
 var tweetTotalSentiment = 0;
 var tweetCount = 0;
 
+/**
+ * Test method. Experimenting with parent kicking off script and changing topics.
+ */
 process.on('message', function(message) {
     debug(path.basename(__filename), 'script received message:', message);
     var object = JSON.parse(message);
@@ -45,7 +48,7 @@ process.on('message', function(message) {
 consumer.on('message', function (message) {
     var tweet = JSON.parse(message.value);
     sentiment(tweet.text, function (err, result) {
-        debug(currentTopic, rateScore(result.score))
+        debug(getSentimentDescription());
         tweetCount++;
         tweetTotalSentiment += result.score;
     });
@@ -53,7 +56,7 @@ consumer.on('message', function (message) {
 
 consumer.on('error', function(err) {
     console.error('here' ,err);
-})
+});
 
 function getSentimentDescription() {
     var avg = tweetTotalSentiment / tweetCount;
