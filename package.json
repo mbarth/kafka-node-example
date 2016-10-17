@@ -2,6 +2,15 @@
   "name": "kafka-node-example",
   "version": "0.0.1",
   "description": "NodeJS sample of producing/consuming topics to Kafka using kafka-node package.",
+  "repository": {
+    "type": "git",
+    "url": "http://github.com/mbarth/kafka-node-example.git"
+  },
+  "keywords": [
+    "kafka",
+    "kafka-node",
+    "twitter"
+  ],
   "dependencies": {
     "async": "~0.9.0",
     "cheerio": "^0.22.0",
