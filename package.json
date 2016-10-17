@@ -1,0 +1,18 @@
+{
+  "name": "kafka-node-example",
+  "version": "0.0.1",
+  "description": "NodeJS sample of producing/consuming topics to Kafka using kafka-node package.",
+  "dependencies": {
+    "async": "~0.9.0",
+    "cheerio": "^0.22.0",
+    "debug": "^2.2.0",
+    "envs": "^0.1.6",
+    "kafka-node": "^1.0.1",
+    "minimist": "~1.1.0",
+    "sentiment": "^2.1.0",
+    "twitter": "^1.4.0"
+  },
+  "devDependencies": {},
+  "author": "mbarth",
+  "license": "Apache-2"
+}

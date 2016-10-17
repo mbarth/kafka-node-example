@@ -1,0 +1,203 @@
+var debug = require('debug')('kafka-node:sample-producer'),
+    path = require('path'),
+    argv = require('minimist')(process.argv.slice(2)),
+    util = require('util'),
+    twitter = require('twitter'),
+    envs = require('envs'),
+    cheerio = require("cheerio"),
+    kafka = require('kafka-node'),
+    Producer = kafka.Producer,
+    client = new kafka.Client(), // using default values of 'localhost:2181'
+    producer = new Producer(client);
+
+var environment = envs('NODE_ENV', 'production');
+// Twitter arguments
+var consumer_key = argv['consumer-key'] || process.env.TWITTER_CONSUMER_KEY;
+var consumer_secret = argv['consumer-secret'] || process.env.TWITTER_CONSUMER_SECRET;
+var access_key = argv['access-key'] || process.env.TWITTER_ACCESS_KEY;
+var access_secret = argv['access-secret'] || process.env.TWITTER_ACCESS_SECRET;
+// Kafka arguments
+var topicName = argv.topic;
+// General arguments
+// Number of tweets to buffer before calling send()
+var message_buffer_size = argv['message-buffer-size'] || 100;
+var filter = argv.filter;
+var help = (argv.help || argv.h);
+
+if (help ||
+    consumer_key === undefined || consumer_secret === undefined ||
+    access_key === undefined || access_secret === undefined ||
+    topicName === undefined)
+{
+    console.log("Stream tweets and load them into a Kafka topic.");
+    console.log();
+    console.log("Usage: node " + path.basename(__filename) + " [--consumer-key <consumer-key>] [--consumer-secret <consumer-secret>]");
+    console.log("                             [--access-key <access-key>] [--access-secret <access-secret>]");
+    console.log("                             --topic <topic> [--filter <term>] [--message-buffer-size <num-messages>]");
+    console.log();
+    console.log("You can also specify Twitter credentials via environment variables: TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET, TWITTER_ACCESS_KEY, TWITTER_ACCESS_SECRET.");
+    process.exit(help ? 0 : 1);
+}
+
+var twit = new twitter({
+    consumer_key: consumer_key,
+    consumer_secret: consumer_secret,
+    access_token_key: access_key,
+    access_token_secret: access_secret
+});
+
+var kafka_producer_ready_flag = false;
+var started = Date.now();
+// make Stream globally visible so clean up is better
+var global_stream = null;
+var consumed_messages_list = [];
+var messages_sent_count = 0;
+var messages_acked_count = 0;
+var exiting = false;
+// Windowed stats
+var windowed_started = Date.now();
+var windowed_collected = 0;
+var windowed_acked_count = 0;
+var windowed_period = 10000; // report every 10 secs
+var windowed_report_interval = setInterval(reportWindowedRate, windowed_period);
+var kafka_producer_ready_interval = null;
+var kafka_producer_delay = 2000;
+
+var endpoint, endpoint_opts = {};
+if (filter) {
+    endpoint = 'statuses/filter';
+    endpoint_opts = {'track': filter};
+} else {
+    endpoint = 'statuses/sample';
+    endpoint_opts = {'language': 'en'};
+}
+
+/**
+ * Start
+ */
+debug('Starting in >', environment, '< environment')
+producer.on('error', function (err) {
+    debug("Error sending data to [" + topicName + "] topic: " + err);
+    shutdown();
+});
+producer.on('ready', function () {
+    debug('Kafka Producer is NOW ready')
+    kafka_producer_ready_flag = true;
+});
+waitForKafkaProducerReadyEvent();
+
+function waitForKafkaProducerReadyEvent() {
+    if (!kafka_producer_ready_flag) {
+        debug('Kafka Producer is NOT YET ready');
+        kafka_producer_ready_interval = setInterval(waitForKafkaProducerReadyEvent, kafka_producer_delay);
+        debug('Waiting for kafka...');
+    } else {
+        clearInterval(kafka_producer_ready_interval);
+        debug("Start listening for twitter streams!")
+        listenForTwitterStreamEvents();
+    }
+}
+
+function listenForTwitterStreamEvents() {
+    twit.stream(endpoint, endpoint_opts, function(stream) {
+        global_stream = stream;
+        global_stream.on('data', function(data) {
+            if (exiting) return;
+            // Filter to only tweets. Streaming data may contain other data and events such as friends lists, block/favorite
+            // events, list modifications, etc. Here we prefilter the data, although this could also be done downstream on
+            // the consumer if we wanted to preserve the entire global_stream. The heuristic we use to distinguish real tweets (or
+            // retweets) is the text field, which shouldn't appear at the top level of other events.
+            if (data.text === undefined)
+                return;
+            var $ = cheerio.load(data.source);
+            // clean up device used slightly
+            var device = $("a").text().replace('Twitter ', '').replace('for ', '');
+            var twitter_data = {
+                'handle': data.user.screen_name,
+                'text': data.text,
+                'device': device
+            };
+            // Serialize twitter_data to a string
+            consumed_messages_list.push(JSON.stringify(twitter_data));
+            windowed_collected++;
+            // Send if we've hit our buffering limit. The number of buffered messages balances your tolerance for losing data
+            // (if the process/host is killed/dies) against throughput (batching messages into fewer requests makes processing
+            // more efficient).
+            if (consumed_messages_list.length >= message_buffer_size) {
+                messages_sent_count += consumed_messages_list.length;
+                var responseHandler = handleProduceResponse.bind(undefined, consumed_messages_list.length);
+                var payload = [
+                    {topic: topicName, messages: consumed_messages_list}
+                ];
+                producer.send(payload, responseHandler);
+                // reset messages list
+                consumed_messages_list = [];
+            }
+        });
+        global_stream.on('error', function(err) {
+            debug(util.inspect(err));
+            /**
+             * TODO
+             * Shutting down if we encounter an error, but could instead
+             * setup retry logic trying to recover the global_stream
+             */
+            shutdown();
+        });
+    });
+}
+
+function handleProduceResponse(batch_messages_count, err, res) {
+    messages_acked_count += batch_messages_count;
+    windowed_acked_count += batch_messages_count;
+    if (err) {
+        if (err == 'LeaderNotAvailable') {
+            debug('Topic [' + topicName + '] does not existent ... attempting to create it');
+            producer.createTopics(topicName, false, function (err, data) {
+                if (err) {
+                    debug('Failed to create topic [' + topicName + ']', err);
+                    shutdown();
+                }
+                debug('Created new topic [' + topicName + ']', data);
+            });
+        } else {
+            debug("Error sending data to specified topic: " + err);
+            shutdown();
+        }
+    }
+    checkExit();
+}
+
+/**
+ * Report how many messages where collected and sent to Kafka
+ */
+function reportWindowedRate() {
+    var now = Date.now();
+    debug("Collected " + windowed_collected + " tweets and stored " +
+        windowed_acked_count + " to Kafka in " + Math.round((now-windowed_started)/1000) +
+        "s, " + Math.round(windowed_collected / ((now - windowed_started) / 1000)) + " tweets/s");
+    windowed_started = now;
+    windowed_collected = 0;
+    windowed_acked_count = 0;
+}
+
+function checkExit() {
+    if (exiting && messages_acked_count == messages_sent_count) {
+        var finished = Date.now();
+        debug("Converted " + messages_acked_count + " tweets, dropped last " +
+            consumed_messages_list.length + " remaining buffered tweets, " +
+            Math.round(messages_acked_count/((finished-started)/1000)) + " tweets/s");
+        exiting = false;
+    }
+}
+
+function shutdown() {
+    debug("**** Gracefully shutting down from SIGINT (Ctrl-C) ****");
+    exiting = true;
+    if (global_stream) global_stream.destroy();
+    clearInterval(windowed_report_interval);
+    checkExit();
+    process.exit();
+}
+
+// Gracefully shutdown on Ctrl-C
+process.on('SIGINT', shutdown);
