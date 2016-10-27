@@ -60,8 +60,6 @@ var windowed_collected = 0;
 var windowed_acked_count = 0;
 var windowed_period = 10000; // report every 10 secs
 var windowed_report_interval = setInterval(reportWindowedRate, windowed_period);
-var kafka_producer_ready_interval = null;
-var kafka_producer_delay = 5000;
 
 /**
  * Start
@@ -69,21 +67,8 @@ var kafka_producer_delay = 5000;
 debug('Starting in >', environment, '< environment');
 producer.on('ready', function () {
     debug('Kafka Producer is NOW ready');
-    kafka_producer_ready_flag = true;
+    listenForTwitterStreamEvents();
 });
-waitForKafkaProducerReadyEvent();
-
-function waitForKafkaProducerReadyEvent() {
-    if (!kafka_producer_ready_flag) {
-        debug('Kafka Producer is NOT YET ready');
-        kafka_producer_ready_interval = setInterval(waitForKafkaProducerReadyEvent, kafka_producer_delay);
-        debug('Waiting for kafka...');
-    } else {
-        clearInterval(kafka_producer_ready_interval);
-        debug("Start listening for twitter streams!");
-        listenForTwitterStreamEvents();
-    }
-}
 
 function listenForTwitterStreamEvents() {
     if (filter) {
@@ -191,7 +176,7 @@ function shutdown() {
     if (global_stream) global_stream.destroy();
     clearInterval(windowed_report_interval);
     checkExit();
-    process.exit();
+    process.exit(0);
 }
 
 // Gracefully shutdown on Ctrl-C
