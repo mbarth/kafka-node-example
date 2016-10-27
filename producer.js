@@ -4,7 +4,6 @@ var debug = require('debug')('kafka-node:sample-producer'),
     util = require('util'),
     twitter = require('twitter'),
     envs = require('envs'),
-    cheerio = require("cheerio"),
     kafka = require('kafka-node'),
     Producer = kafka.Producer,
     client = new kafka.Client(), // using default values of 'localhost:2181'
@@ -46,7 +45,6 @@ var twit = new twitter({
     access_token_secret: access_secret
 });
 
-var kafka_producer_ready_flag = false;
 var started = Date.now();
 // make Stream globally visible so clean up is better
 var global_stream = null;
@@ -60,8 +58,6 @@ var windowed_collected = 0;
 var windowed_acked_count = 0;
 var windowed_period = 10000; // report every 10 secs
 var windowed_report_interval = setInterval(reportWindowedRate, windowed_period);
-var kafka_producer_ready_interval = null;
-var kafka_producer_delay = 2000;
 
 var endpoint, endpoint_opts = {};
 if (filter) {
@@ -82,21 +78,8 @@ producer.on('error', function (err) {
 });
 producer.on('ready', function () {
     debug('Kafka Producer is NOW ready')
-    kafka_producer_ready_flag = true;
+    listenForTwitterStreamEvents();
 });
-waitForKafkaProducerReadyEvent();
-
-function waitForKafkaProducerReadyEvent() {
-    if (!kafka_producer_ready_flag) {
-        debug('Kafka Producer is NOT YET ready');
-        kafka_producer_ready_interval = setInterval(waitForKafkaProducerReadyEvent, kafka_producer_delay);
-        debug('Waiting for kafka...');
-    } else {
-        clearInterval(kafka_producer_ready_interval);
-        debug("Start listening for twitter streams!")
-        listenForTwitterStreamEvents();
-    }
-}
 
 function listenForTwitterStreamEvents() {
     twit.stream(endpoint, endpoint_opts, function(stream) {
