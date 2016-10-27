@@ -4,7 +4,6 @@ var debug = require('debug')('kafka-node:twitter-stream-producer'),
     util = require('util'),
     Twitter = require('node-tweet-stream'),
     envs = require('envs'),
-    cheerio = require("cheerio"),
     kafka = require('kafka-node'),
     Producer = kafka.Producer,
     client = new kafka.Client(), // using default values of 'localhost:2181'
@@ -84,13 +83,10 @@ function listenForTwitterStreamEvents() {
         // retweets) is the text field, which shouldn't appear at the top level of other events.
         if (data.text === undefined)
             return;
-        var $ = cheerio.load(data.source);
-        // clean up device used slightly
-        var device = $("a").text().replace('Twitter ', '').replace('for ', '');
         var twitter_data = {
             'handle': data.user.screen_name,
             'text': data.text,
-            'device': device,
+            'device': data.source,
             'filter': filter ? filter : ''
         };
         // Serialize twitter_data to a string
