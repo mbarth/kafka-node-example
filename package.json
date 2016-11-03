@@ -11,6 +11,13 @@
     "kafka-node",
     "twitter"
   ],
+  "scripts": {
+    "handle": "load_env.bat & node handle-consumer.js --port 9001",
+    "mood": "load_env.bat & node mood-consumer.js --port 9002",
+    "hashtag": "load_env.bat & node hashtag-consumer.js --port 9003",
+    "device": "load_env.bat & node device-consumer.js --port 9004",
+    "metrics": "load_env.bat & node metrics-consumer.js --port 9005"
+  },
   "dependencies": {
     "async": "~0.9.0",
     "cheerio": "^0.22.0",
@@ -18,8 +25,10 @@
     "envs": "^0.1.6",
     "kafka-node": "^1.0.1",
     "minimist": "~1.1.0",
+    "node-tweet-stream": "^2.0.1",
     "sentiment": "^2.1.0",
-    "twitter": "^1.4.0"
+    "twitter": "^1.4.0",
+    "websocket": "^1.0.23"
   },
   "devDependencies": {},
   "author": "mbarth",
