@@ -92,13 +92,10 @@ function listenForTwitterStreamEvents() {
             // retweets) is the text field, which shouldn't appear at the top level of other events.
             if (data.text === undefined)
                 return;
-            var $ = cheerio.load(data.source);
-            // clean up device used slightly
-            var device = $("a").text().replace('Twitter ', '').replace('for ', '');
             var twitter_data = {
                 'handle': data.user.screen_name,
                 'text': data.text,
-                'device': device
+                'device': data.source
             };
             // Serialize twitter_data to a string
             consumed_messages_list.push(JSON.stringify(twitter_data));
